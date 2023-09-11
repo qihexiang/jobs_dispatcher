@@ -1,5 +1,7 @@
 use std::collections::HashMap;
+use serde::{Serialize, Deserialize};
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Resources {
     countables: HashMap<String, u64>,
     properties: HashMap<String, String>,
@@ -11,6 +13,14 @@ impl Resources {
             countables: HashMap::new(),
             properties: HashMap::new(),
         }
+    }
+
+    pub fn countables(&self) -> &HashMap<String, u64> {
+        return &self.countables
+    }
+
+    pub fn properties(&self) -> &HashMap<String, String> {
+        return &self.properties
     }
 
     pub fn get_countable(&self, key: &str) -> u64 {

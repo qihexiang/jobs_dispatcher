@@ -2,19 +2,20 @@ use libc::{setgid, setuid};
 use std::{collections::HashMap, env};
 use tokio::{
     process::Command,
-    sync::Semaphore,
     time::{timeout, Duration},
 };
+use serde::{Serialize, Deserialize};
 
 use crate::resources::Resources;
 
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct JobConfiguration {
-    uid: u32,
-    gid: Option<u32>,
-    name: String,
-    time_limit: u64,
-    resources: Resources,
-    phases: Vec<Phase>,
+    pub uid: u32,
+    pub gid: Option<u32>,
+    pub name: String,
+    pub time_limit: u64,
+    pub resources: Resources,
+    pub phases: Vec<Phase>,
 }
 
 impl JobConfiguration {
@@ -43,6 +44,7 @@ impl JobConfiguration {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum Phase {
     WORKDIR(String),
     SH(String),

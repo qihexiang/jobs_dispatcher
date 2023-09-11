@@ -1,0 +1,11 @@
+resources:
+  countables:
+    cpu: 16
+    gpu: 1
+    memory: 16000000000
+  properties: 
+    gpu: rtx4060ti
+ip: [127, 0, 0, 1]
+port: 9500
+db: file:/database.db
+name: Jack1

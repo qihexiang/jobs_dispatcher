@@ -9,6 +9,11 @@ edition = "2021"
 cgroups-rs = "0.3.3"
 libc = "0.2.147"
 tokio = { version = "1.32.0", features = ["full"] }
+axum = "0.6.20"
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9.25"
+serde_json = "1.0.106"
+sea-orm = { version = "^0.12.2", features = ["sqlx-sqlite", "runtime-tokio-rustls", "macros"]}
 
 [dependencies.uuid]
 version = "1.4.1"
