@@ -6,11 +6,15 @@ use std::{
 };
 
 use axum::{
-    extract::State,
+    extract::{ConnectInfo, State},
+    http::{Request, StatusCode},
+    middleware::{self, Next},
+    response::{Response, IntoResponse},
     routing::{get, post},
     Json, Router,
 };
 use cgroups_rs::CgroupPid;
+use dns_lookup::lookup_addr;
 use job_dispatcher::{jobs::JobConfiguration, resources::Resources};
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
@@ -18,6 +22,7 @@ use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct VertexConfiguration {
+    servers: Vec<String>,
     name: String,
     resources: Resources,
     ip: [u8; 4],
@@ -34,7 +39,7 @@ enum ProcessStatus {
 
 #[derive(Clone, Serialize, Deserialize)]
 struct JobStatus {
-    task_id: Uuid,
+    task_id: String,
     configuration: JobConfiguration,
     process: ProcessStatus,
 }
@@ -51,13 +56,15 @@ impl JobStatus {
 
 #[derive(Clone)]
 struct VertexState {
+    servers: Vec<String>,
     resources: Resources,
     jobs: Arc<RwLock<Vec<JobStatus>>>,
 }
 
 impl VertexState {
-    fn new(resources: &Resources) -> Self {
+    fn new(resources: &Resources, servers: &Vec<String>) -> Self {
         Self {
+            servers: servers.clone(),
             resources: resources.clone(),
             jobs: Arc::new(RwLock::new(Vec::new())),
         }
@@ -71,13 +78,17 @@ async fn main() {
         job_configuration.execute().await.unwrap();
     } else {
         let configuration: VertexConfiguration = load_config().await;
-        let state = VertexState::new(&configuration.resources);
+        let state = VertexState::new(&configuration.resources, &configuration.servers);
         let app = Router::new()
-            .route("/", get(hello_world))
             .route("/free", get(get_free_resouces))
             .route("/jobs", get(get_jobs))
             .route("/jobs", post(execute_job))
+            .layer(middleware::from_fn_with_state(
+                state.clone(),
+                request_source_check,
+            ))
             .with_state(state);
+
         let addr = SocketAddr::from((configuration.ip, configuration.port));
         axum::Server::bind(&addr)
             .serve(app.into_make_service())
@@ -86,8 +97,24 @@ async fn main() {
     }
 }
 
-async fn hello_world() -> &'static str {
-    "hello, world"
+async fn request_source_check<B>(
+    state: State<VertexState>,
+    connect: ConnectInfo<SocketAddr>,
+    req: Request<B>,
+    next: Next<B>,
+) -> Result<Response, StatusCode> {
+    let ip_addr = connect.ip();
+    if state.servers.contains(&ip_addr.to_string()) {
+        Ok(next.run(req).await)
+    } else if let Ok(hostname) = lookup_addr(&ip_addr) {
+        if state.servers.contains(&hostname) {
+            Ok(next.run(req).await)
+        } else {
+            Err(StatusCode::FORBIDDEN)
+        }
+    } else {
+        Err(StatusCode::FORBIDDEN)
+    }
 }
 
 async fn get_jobs(state: State<VertexState>) -> axum::Json<Vec<JobStatus>> {
@@ -99,11 +126,11 @@ async fn execute_job(
     state: State<VertexState>,
     Json(job_configuration): Json<JobConfiguration>,
 ) -> Result<axum::Json<JobStatus>, String> {
-    let task_id = Uuid::new_v4();
+    let task_id = Uuid::new_v4().to_string();
     let vertex = env::current_exe().unwrap();
     let executor_data = serde_json::to_string(&job_configuration).map_err(|e| e.to_string())?;
     let new_job = JobStatus {
-        task_id,
+        task_id: task_id.clone(),
         configuration: job_configuration.clone(),
         process: ProcessStatus::RUNNING(
             SystemTime::now()
