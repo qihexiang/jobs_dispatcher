@@ -111,3 +111,28 @@ impl Phase {
         }
     }
 }
+
+
+#[derive(Clone, Copy, Serialize, Deserialize)]
+pub enum ProcessStatus {
+    RUNNING(u128),
+    PAUSE(u128, u128),
+    FINISHED(u128),
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct JobStatus {
+    pub task_id: String,
+    pub configuration: JobConfiguration,
+    pub process: ProcessStatus,
+}
+
+impl JobStatus {
+    pub fn is_running(&self) -> bool {
+        if let ProcessStatus::RUNNING(_) = self.process {
+            true
+        } else {
+            false
+        }
+    }
+}

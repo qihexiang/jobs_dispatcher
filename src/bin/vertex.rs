@@ -9,16 +9,17 @@ use axum::{
     extract::{ConnectInfo, State},
     http::{Request, StatusCode},
     middleware::{self, Next},
-    response::{Response, IntoResponse},
+    response::Response,
     routing::{get, post},
     Json, Router,
 };
 use cgroups_rs::CgroupPid;
 use dns_lookup::lookup_addr;
-use job_dispatcher::{jobs::JobConfiguration, resources::Resources};
+use job_dispatcher::{jobs::{JobConfiguration, ProcessStatus}, resources::Resources};
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 use uuid::Uuid;
+use job_dispatcher::jobs::JobStatus;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct VertexConfiguration {
@@ -28,30 +29,6 @@ struct VertexConfiguration {
     ip: [u8; 4],
     port: u16,
     db: String,
-}
-
-#[derive(Clone, Copy, Serialize, Deserialize)]
-enum ProcessStatus {
-    RUNNING(u128),
-    PAUSE(u128, u128),
-    FINISHED(u128),
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-struct JobStatus {
-    task_id: String,
-    configuration: JobConfiguration,
-    process: ProcessStatus,
-}
-
-impl JobStatus {
-    fn is_running(&self) -> bool {
-        if let ProcessStatus::RUNNING(_) = self.process {
-            true
-        } else {
-            false
-        }
-    }
 }
 
 #[derive(Clone)]
@@ -73,7 +50,7 @@ impl VertexState {
 
 #[tokio::main]
 async fn main() {
-    if let Some(executor_data) = env::args().collect::<Vec<_>>().get(0) {
+    if let Some(executor_data) = env::args().collect::<Vec<_>>().get(1) {
         let job_configuration: JobConfiguration = serde_json::from_str(&executor_data).unwrap();
         job_configuration.execute().await.unwrap();
     } else {
@@ -91,7 +68,7 @@ async fn main() {
 
         let addr = SocketAddr::from((configuration.ip, configuration.port));
         axum::Server::bind(&addr)
-            .serve(app.into_make_service())
+            .serve(app.into_make_service_with_connect_info::<SocketAddr>())
             .await
             .unwrap();
     }
