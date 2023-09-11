@@ -28,7 +28,6 @@ struct VertexConfiguration {
     resources: Resources,
     ip: [u8; 4],
     port: u16,
-    db: String,
 }
 
 #[derive(Clone)]
@@ -173,16 +172,27 @@ async fn get_free_resouces(state: State<VertexState>) -> axum::Json<Resources> {
 }
 
 async fn load_config() -> VertexConfiguration {
-    for target_path in [
-        "/usr/local/etc/vertex.yml",
-        "/etc/local/vertex.yml",
-        "/root/.config/vertex.yml",
-        "./vertex.yml",
-    ] {
-        if let Ok(data) = tokio::fs::read_to_string(target_path).await {
+    if let Ok(target_path) = env::var("VERTEX_CONFIG_PATH") {
+        if let Ok(data) = tokio::fs::read_to_string(&target_path).await {
             println!("File {} loaded", target_path);
             return serde_yaml::from_str(&data).unwrap();
+        } else {
+            panic!("Failed to parse file: {}", target_path)
         }
+    } else {
+        for target_path in [
+            "/usr/local/etc/vertex.yml",
+            "/etc/local/vertex.yml",
+            "/root/.config/vertex.yml",
+            "./vertex.yml",
+        ] {
+            if let Ok(data) = tokio::fs::read_to_string(target_path).await {
+                println!("File {} loaded", target_path);
+                return serde_yaml::from_str(&data).unwrap();
+            } else {
+                panic!("Failed to parse file: {}", target_path)
+            }
+        }
+        panic!("Failed to load configuration file")
     }
-    panic!("Failed to load configuration file")
 }
