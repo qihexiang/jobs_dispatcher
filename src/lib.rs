@@ -1,5 +1,6 @@
 pub mod jobs;
 pub mod resources;
+pub mod queue;
 
 pub fn add(left: usize, right: usize) -> usize {
     left + right
