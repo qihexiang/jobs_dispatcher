@@ -10,10 +10,14 @@ use crate::resources::Resources;
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct JobConfiguration {
+    #[serde(default)]
     pub uid: u32,
+    #[serde(default)]
     pub gid: Option<u32>,
     pub name: String,
+    #[serde(default)]
     pub time_limit: u64,
+    #[serde(default)]
     pub resources: Resources,
     pub phases: Vec<Phase>,
 }

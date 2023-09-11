@@ -7,6 +7,12 @@ pub struct Resources {
     properties: HashMap<String, String>,
 }
 
+impl Default for Resources {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Resources {
     pub fn new() -> Self {
         Self {
