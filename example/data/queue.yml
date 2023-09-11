@@ -1,0 +1,17 @@
+priority:
+  iffset: 1
+  factor: 1
+policy:
+  resources_weight:
+  - [cpu, 1]
+  - [memory, 1]
+  time_limit_weight: -0.8
+  wait_weight: 1.0
+  user_weight:
+  - [1000, {
+    factor: 1
+  }]
+  property_weight:
+  - ["gpu", "rtx4060ti", {
+    offset: 1, factor: 1
+  }]
