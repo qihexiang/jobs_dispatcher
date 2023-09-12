@@ -2,7 +2,7 @@ use std::{
     env,
     net::SocketAddr,
     sync::{Arc, RwLock},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{SystemTime, UNIX_EPOCH}, collections::HashMap,
 };
 
 use axum::{
@@ -11,7 +11,7 @@ use axum::{
     Json, Router,
 };
 use cgroups_rs::CgroupPid;
-use job_dispatcher::{jobs::{JobConfiguration, ProcessStatus}, resources::Resources, http_utils::client_host_check};
+use job_dispatcher::{jobs::{JobConfiguration, ProcessStatus}, resources::Resources, http_utils::{client_host_check, basic_check}};
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 use uuid::Uuid;
@@ -19,24 +19,35 @@ use job_dispatcher::jobs::JobStatus;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct VertexConfiguration {
+    #[serde(default)]
     servers: Vec<String>,
     name: String,
     resources: Resources,
+    #[serde(default = "listen_all")]
     ip: [u8; 4],
+    #[serde(default = "default_port")]
     port: u16,
+    #[serde(default)]
+    user_table: HashMap<String, String>
+}
+
+fn listen_all() -> [u8;4] {
+    [0,0,0,0]
+}
+
+fn default_port() -> u16 {
+    9500
 }
 
 #[derive(Clone)]
 struct VertexState {
-    servers: Vec<String>,
     resources: Resources,
     jobs: Arc<RwLock<Vec<JobStatus>>>,
 }
 
 impl VertexState {
-    fn new(resources: &Resources, servers: &Vec<String>) -> Self {
+    fn new(resources: &Resources) -> Self {
         Self {
-            servers: servers.clone(),
             resources: resources.clone(),
             jobs: Arc::new(RwLock::new(Vec::new())),
         }
@@ -50,15 +61,16 @@ async fn main() {
         job_configuration.execute().await.unwrap();
     } else {
         let configuration: VertexConfiguration = load_config().await;
-        let state = VertexState::new(&configuration.resources, &configuration.servers);
+        let state = VertexState::new(&configuration.resources);
         let app = Router::new()
             .route("/free", get(get_free_resouces))
             .route("/jobs", get(get_jobs))
             .route("/jobs", post(execute_job))
             .layer(axum::middleware::from_fn_with_state(
-                state.servers.clone(),
+                configuration.servers.clone(),
                 client_host_check,
             ))
+            .layer(axum::middleware::from_fn_with_state(configuration.user_table.clone(), basic_check))
             .with_state(state);
 
         let addr = SocketAddr::from((configuration.ip, configuration.port));
@@ -166,9 +178,9 @@ async fn load_config() -> VertexConfiguration {
                 println!("File {} loaded", target_path);
                 return serde_yaml::from_str(&data).unwrap();
             } else {
-                panic!("Failed to parse file: {}", target_path)
+                panic!("Failed to load file: {}", target_path)
             }
         }
-        panic!("Failed to load configuration file")
+        panic!("No default configuration file found.")
     }
 }

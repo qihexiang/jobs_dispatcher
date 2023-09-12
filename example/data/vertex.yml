@@ -10,3 +10,5 @@ port: 9500
 name: Jack1
 servers:
 - polarbird.lan
+user_table:
+  jack1: 203JKFKDdfa
