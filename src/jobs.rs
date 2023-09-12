@@ -1,4 +1,4 @@
-use libc::{setgid, setuid};
+use libc::{setegid, seteuid};
 use reqwest::Body;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, env};
@@ -32,12 +32,12 @@ impl Into<Body> for JobConfiguration {
 impl JobConfiguration {
     pub async fn execute(&self) -> Result<String, (u64, String)> {
         unsafe {
-            if setuid(self.uid) != 0 {
+            if seteuid(self.uid) != 0 {
                 panic!("Failed to switch user!")
             }
 
             if let Some(gid) = self.gid {
-                if setgid(gid) != 0 {
+                if setegid(gid) != 0 {
                     panic!("Failed to set group!")
                 }
             }
