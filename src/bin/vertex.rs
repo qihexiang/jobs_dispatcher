@@ -8,10 +8,10 @@ use std::{
 use axum::{
     extract::State,
     routing::{get, post},
-    Json, Router,
+    Json, Router, TypedHeader, headers::{authorization::Basic, Authorization},
 };
 use cgroups_rs::CgroupPid;
-use job_dispatcher::{jobs::{JobConfiguration, ProcessStatus}, resources::Resources, http_utils::{client_host_check, basic_check}, config::load_config};
+use job_dispatcher::{jobs::{JobConfiguration, ProcessStatus}, resources::Resources, http_utils::basic_check, config::load_config};
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 use uuid::Uuid;
@@ -19,15 +19,12 @@ use job_dispatcher::jobs::JobStatus;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct VertexConfiguration {
-    #[serde(default)]
-    servers: Vec<String>,
     name: String,
     resources: Resources,
     #[serde(default = "listen_all")]
     ip: [u8; 4],
     #[serde(default = "default_port")]
     port: u16,
-    #[serde(default)]
     user_table: HashMap<String, String>
 }
 
@@ -74,10 +71,6 @@ async fn main() {
             .route("/free", get(get_free_resouces))
             .route("/jobs", get(get_jobs))
             .route("/jobs", post(execute_job))
-            .layer(axum::middleware::from_fn_with_state(
-                configuration.servers.clone(),
-                client_host_check,
-            ))
             .layer(axum::middleware::from_fn_with_state(configuration.user_table.clone(), basic_check))
             .with_state(state);
 
@@ -89,19 +82,22 @@ async fn main() {
     }
 }
 
-async fn get_jobs(state: State<VertexState>) -> axum::Json<Vec<JobStatus>> {
-    let jobs = state.jobs.read().unwrap().clone();
+async fn get_jobs(state: State<VertexState>, TypedHeader(Authorization(basic)): TypedHeader<Authorization<Basic>>) -> axum::Json<Vec<JobStatus>> {
+    let jobs = state.jobs.read().unwrap().iter().filter(|job| job.basic_user == basic.username()).map(|job| job.clone()).collect::<Vec<_>>();
     Json(jobs)
 }
 
 async fn execute_job(
-    state: State<VertexState>,
+    State(state): State<VertexState>,
+    TypedHeader(Authorization(basic)): TypedHeader<Authorization<Basic>>,
     Json(job_configuration): Json<JobConfiguration>,
 ) -> Result<axum::Json<JobStatus>, String> {
     let task_id = Uuid::new_v4().to_string();
     let vertex = env::current_exe().unwrap();
     let executor_data = serde_json::to_string(&job_configuration).map_err(|e| e.to_string())?;
+    let username = basic.username();
     let new_job = JobStatus {
+        basic_user: username.to_string(),
         task_id: task_id.clone(),
         configuration: job_configuration.clone(),
         process: ProcessStatus::RUNNING(

@@ -127,6 +127,7 @@ pub enum ProcessStatus {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct JobStatus {
     pub task_id: String,
+    pub basic_user: String,
     pub configuration: JobConfiguration,
     pub process: ProcessStatus,
 }
