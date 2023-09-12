@@ -70,7 +70,7 @@ async fn main() {
         let app = Router::new()
             .route("/free", get(get_free_resouces))
             .route("/jobs", get(get_jobs))
-            .route("/jobs", post(execute_job))
+            .route("/job", post(execute_job))
             .layer(axum::middleware::from_fn_with_state(configuration.user_table.clone(), basic_check))
             .with_state(state);
 
