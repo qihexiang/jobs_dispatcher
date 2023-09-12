@@ -1,4 +1,5 @@
 use libc::{setgid, setuid};
+use reqwest::Body;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, env};
 use tokio::{
@@ -20,6 +21,12 @@ pub struct JobConfiguration {
     #[serde(default)]
     pub resources: Resources,
     pub phases: Vec<Phase>,
+}
+
+impl Into<Body> for JobConfiguration {
+    fn into(self) -> Body {
+        Body::from(serde_json::to_string(&self).unwrap_or("null".to_string()))
+    }
 }
 
 impl JobConfiguration {
@@ -117,14 +124,14 @@ impl Phase {
 }
 
 
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Copy, Serialize, Deserialize, Debug)]
 pub enum ProcessStatus {
     RUNNING(u128),
     PAUSE(u128, u128),
     FINISHED(u128),
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct JobStatus {
     pub task_id: String,
     pub basic_user: String,

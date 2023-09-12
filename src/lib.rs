@@ -2,6 +2,7 @@ pub mod jobs;
 pub mod resources;
 pub mod queue;
 pub mod http_utils;
+pub mod request_util;
 
 pub mod config {
     use std::fs;
