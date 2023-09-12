@@ -11,7 +11,7 @@ use axum::{
     Json, Router,
 };
 use cgroups_rs::CgroupPid;
-use job_dispatcher::{jobs::{JobConfiguration, ProcessStatus}, resources::Resources, http_utils::{client_host_check, basic_check}};
+use job_dispatcher::{jobs::{JobConfiguration, ProcessStatus}, resources::Resources, http_utils::{client_host_check, basic_check}, config::load_config};
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 use uuid::Uuid;
@@ -60,7 +60,15 @@ async fn main() {
         let job_configuration: JobConfiguration = serde_json::from_str(&executor_data).unwrap();
         job_configuration.execute().await.unwrap();
     } else {
-        let configuration: VertexConfiguration = load_config().await;
+        let configuration: VertexConfiguration = if let Ok(config_path) = env::var("VERTEX_CONFIG_PATH") {
+            load_config(vec![&config_path])
+        } else {
+            load_config(vec![
+                "./vertex.yml",
+                "/etc/vertex.yml",
+                "/usr/local/etc/vertex.yml"
+            ])
+        }.expect("No validate config file found.");
         let state = VertexState::new(&configuration.resources);
         let app = Router::new()
             .route("/free", get(get_free_resouces))
@@ -157,30 +165,4 @@ async fn get_free_resouces(state: State<VertexState>) -> axum::Json<Resources> {
         }
     }
     Json(current_free)
-}
-
-async fn load_config() -> VertexConfiguration {
-    if let Ok(target_path) = env::var("VERTEX_CONFIG_PATH") {
-        if let Ok(data) = tokio::fs::read_to_string(&target_path).await {
-            println!("File {} loaded", target_path);
-            return serde_yaml::from_str(&data).unwrap();
-        } else {
-            panic!("Failed to parse file: {}", target_path)
-        }
-    } else {
-        for target_path in [
-            "/usr/local/etc/vertex.yml",
-            "/etc/local/vertex.yml",
-            "/root/.config/vertex.yml",
-            "./vertex.yml",
-        ] {
-            if let Ok(data) = tokio::fs::read_to_string(target_path).await {
-                println!("File {} loaded", target_path);
-                return serde_yaml::from_str(&data).unwrap();
-            } else {
-                panic!("Failed to load file: {}", target_path)
-            }
-        }
-        panic!("No default configuration file found.")
-    }
 }
