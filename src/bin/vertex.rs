@@ -6,16 +6,12 @@ use std::{
 };
 
 use axum::{
-    extract::{ConnectInfo, State},
-    http::{Request, StatusCode},
-    middleware::{self, Next},
-    response::Response,
+    extract::State,
     routing::{get, post},
     Json, Router,
 };
 use cgroups_rs::CgroupPid;
-use dns_lookup::lookup_addr;
-use job_dispatcher::{jobs::{JobConfiguration, ProcessStatus}, resources::Resources};
+use job_dispatcher::{jobs::{JobConfiguration, ProcessStatus}, resources::Resources, http_utils::client_host_check};
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 use uuid::Uuid;
@@ -59,9 +55,9 @@ async fn main() {
             .route("/free", get(get_free_resouces))
             .route("/jobs", get(get_jobs))
             .route("/jobs", post(execute_job))
-            .layer(middleware::from_fn_with_state(
-                state.clone(),
-                request_source_check,
+            .layer(axum::middleware::from_fn_with_state(
+                state.servers.clone(),
+                client_host_check,
             ))
             .with_state(state);
 
@@ -70,26 +66,6 @@ async fn main() {
             .serve(app.into_make_service_with_connect_info::<SocketAddr>())
             .await
             .unwrap();
-    }
-}
-
-async fn request_source_check<B>(
-    state: State<VertexState>,
-    connect: ConnectInfo<SocketAddr>,
-    req: Request<B>,
-    next: Next<B>,
-) -> Result<Response, StatusCode> {
-    let ip_addr = connect.ip();
-    if state.servers.contains(&ip_addr.to_string()) {
-        Ok(next.run(req).await)
-    } else if let Ok(hostname) = lookup_addr(&ip_addr) {
-        if state.servers.contains(&hostname) {
-            Ok(next.run(req).await)
-        } else {
-            Err(StatusCode::FORBIDDEN)
-        }
-    } else {
-        Err(StatusCode::FORBIDDEN)
     }
 }
 
