@@ -1,4 +1,3 @@
-use libc::{setegid, seteuid};
 use reqwest::Body;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, env};
@@ -29,29 +28,9 @@ impl Into<Body> for JobConfiguration {
 
 impl JobConfiguration {
     pub async fn execute(&self) -> Result<String, (u64, String)> {
-        unsafe {
-            if seteuid(self.uid) != 0 {
-                panic!("Failed to switch user!")
-            }
-
-            if setegid(self.gid) != 0 {
-                panic!("Failed to set group!")
-            }
-        };
-
-        let execution = Phase::execute_all(&self.phases);
+        let execution = Phase::execute_all(&self.phases, self.uid, self.gid);
 
         let time_limit = timeout(Duration::from_secs(self.time_limit), execution).await;
-
-        unsafe {
-            if seteuid(0) != 0 {
-                panic!("Failed to switch user!")
-            }
-
-            if setegid(0) != 0 {
-                panic!("Failed to set group!")
-            }
-        }
 
         if let Ok(execution) = time_limit {
             execution
@@ -70,15 +49,16 @@ pub enum Phase {
 }
 
 impl Phase {
-    pub async fn execute_all(phases: &Vec<Phase>) -> Result<String, (u64, String)> {
+    pub async fn execute_all(phases: &Vec<Phase>, uid: u32, gid: u32) -> Result<String, (u64, String)> {
         let mut log = String::new();
         for phase in phases {
-            log.push_str(&phase.execute().await?);
+            log.push_str(&phase.execute(uid, gid).await?);
         }
         Ok(log)
     }
 
-    pub async fn execute(&self) -> Result<String, (u64, String)> {
+    pub async fn execute(&self, uid: u32, gid: u32) -> Result<String, (u64, String)> {
+        println!("current uid: {}, gid: {}", uid, gid);
         match self {
             Self::WORKDIR(directory) => env::set_current_dir(directory).map_or_else(
                 |e| Err((1, e.to_string())),
@@ -90,7 +70,9 @@ impl Phase {
                 }
                 Ok(format!("{} environment variables set", environment.len()))
             }
-            Self::SH(commands) => Command::new("sh")
+            Self::SH(commands) => Command::new("bash")
+                .uid(uid)
+                .gid(gid)
                 .arg("-c")
                 .arg(commands)
                 .output()
@@ -103,7 +85,7 @@ impl Phase {
                         let stderr = String::from_utf8(output.stderr)
                             .unwrap_or("Failed to parse stderr".to_string());
                         Ok(format!(
-                            "stdout:\n=====\n{}\n<<<<<\nstderr:\n=====\n{}\n<<<<<",
+                            "\nstdout:\n=====\n{}\n<<<<<\nstderr:\n=====\n{}\n<<<<<",
                             stdout, stderr
                         ))
                     },
@@ -111,7 +93,10 @@ impl Phase {
             Self::RUN(commands) => {
                 let program = commands.get(0).expect("At least on argument.");
                 let args = commands.iter().skip(1).collect::<Vec<_>>();
-                Command::new(program).args(args).output().await.map_or_else(
+                Command::new(program)
+                    .uid(uid)
+                    .gid(gid)
+                    .args(args).output().await.map_or_else(
                     |e| Err((1, e.to_string())),
                     |output| {
                         let stdout = String::from_utf8(output.stdout)
