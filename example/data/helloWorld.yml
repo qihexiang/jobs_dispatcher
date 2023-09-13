@@ -1,4 +1,5 @@
 uid: 1000
+gid: 1000
 name: hello, world
 time_limit: 10
 resources:
@@ -7,5 +8,6 @@ resources:
     memory: 1000000
   properties:
 phases:
+  - !RUN ["sh", "-c", "id"]
   - !WORKDIR /home/hexiang
   - !SH echo "hello, world" > test.log
