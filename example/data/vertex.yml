@@ -1,6 +1,7 @@
+cpus: !Use 8
+mems: !Select [0]
 resources:
   countables:
-    cpu: 16
     gpu: 1
     memory: 16000000000
   properties: 

@@ -1,9 +1,26 @@
+use std::collections::{HashSet, HashMap};
+
 use crate::{
-    jobs::{self, JobConfiguration, JobStatus},
+    jobs::{JobConfiguration, JobStatus},
     resources::Resources,
 };
-use axum::headers::ContentType;
-use reqwest::{Body, Client, Error, RequestBuilder};
+
+use reqwest::{Body, Client, RequestBuilder};
+use serde::{Serialize, Deserialize};
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct VertexFreeApi {
+    cpus: HashSet<usize>,
+    countables: HashMap<String, usize>
+}
+
+impl VertexFreeApi {
+    pub fn new(cpus: &HashSet<usize>, countables: &HashMap<String, usize>) -> Self {
+        Self {
+            cpus: cpus.clone(), countables: countables.clone()
+        }
+    }
+}
 
 pub struct VertexClient {
     server: String,
@@ -47,7 +64,7 @@ impl VertexClient {
             .body(body)
     }
 
-    pub async fn free(&self) -> Result<Resources, String> {
+    pub async fn free(&self) -> Result<VertexFreeApi, String> {
         self.get("/free")
             .send()
             .await

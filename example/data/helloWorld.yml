@@ -2,9 +2,9 @@ uid: 1000
 gid: 1000
 name: hello, world
 time_limit: 10
+cpus: !Use 1
 resources:
   countables:
-    cpu: 1
     memory: 1000000
   properties:
 phases:

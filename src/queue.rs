@@ -15,32 +15,32 @@ pub struct QueueConfiguration {
     policy: QueueJobPolicy
 }
 
-impl QueueConfiguration {
-    pub fn calc_job_weight(&self, job: &JobConfiguration, waiting: Duration) -> f64 {
-        let policy = &self.policy;
-        let mut weight = 0.;
-        let waiting_seconds = waiting.as_secs_f64();
-        weight += waiting_seconds * policy.wait_weight;
-        weight += (job.time_limit as f64) * policy.time_limit_weight;
-        for (k, cw) in &policy.resources_weight {
-            weight += (job.resources.get_countable(k) as f64) * cw;
-        }
-        for (k, v, cw) in &policy.property_weight {
-            if job.resources.property_is(k, v) {
-                weight = cw.offset + weight * cw.factor
-            }
-        }
-        if let Some(job_gid) = job.gid {
-            if let Some((_, cw)) = policy.group_weight.iter().find(|(gid, _)| gid == &job_gid) {
-                weight = cw.offset + weight * cw.factor
-            }
-        }
-        if let Some((_, cw)) = policy.user_weight.iter().find(|(uid, _)| uid == &job.uid) {
-            weight = cw.offset + weight * cw.factor
-        }   
-        self.priority.offset + self.priority.factor * weight
-    }
-}
+// impl QueueConfiguration {
+//     pub fn calc_job_weight(&self, job: &JobConfiguration, waiting: Duration) -> f64 {
+//         let policy = &self.policy;
+//         let mut weight = 0.;
+//         let waiting_seconds = waiting.as_secs_f64();
+//         weight += waiting_seconds * policy.wait_weight;
+//         weight += (job.time_limit as f64) * policy.time_limit_weight;
+//         for (k, cw) in &policy.resources_weight {
+//             weight += (job.resources.get_countable(k) as f64) * cw;
+//         }
+//         for (k, v, cw) in &policy.property_weight {
+//             if job.resources.property_is(k, v) {
+//                 weight = cw.offset + weight * cw.factor
+//             }
+//         }
+//         if let Some(job_gid) = job.gid {
+//             if let Some((_, cw)) = policy.group_weight.iter().find(|(gid, _)| gid == &job_gid) {
+//                 weight = cw.offset + weight * cw.factor
+//             }
+//         }
+//         if let Some((_, cw)) = policy.user_weight.iter().find(|(uid, _)| uid == &job.uid) {
+//             weight = cw.offset + weight * cw.factor
+//         }   
+//         self.priority.offset + self.priority.factor * weight
+//     }
+// }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct QueueJobPolicy {
