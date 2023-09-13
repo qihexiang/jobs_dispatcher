@@ -148,18 +148,7 @@ async fn execute_job(
     jobs.push(new_job.clone());
     let jobs = state.jobs.clone();
     tokio::spawn(async move {
-        // let hier = cgroups_rs::hierarchies::auto();
-        // let cg = cgroups_rs::cgroup_builder::CgroupBuilder::new(&task_id.to_string())
-        //     .cpu()
-        //     .shares(job_configuration.resources.get_countable("cpu"))
-        //     .done()
-        //     .memory()
-        //     .memory_hard_limit(job_configuration.resources.get_countable("memroy") as i64)
-        //     .done()
-        //     .build(hier)
-        //     .map_err(|e| e.to_string())?;
         if let Ok(mut sub_process) = Command::new(vertex).arg(executor_data).spawn() {
-            println!("subprocess created");
             sub_process.wait().await.map_err(|e| e.to_string())?;
             let mut jobs = jobs.write().unwrap();
             let id = jobs
@@ -167,9 +156,7 @@ async fn execute_job(
                 .position(|item| item.task_id == task_id)
                 .unwrap();
             jobs.remove(id);
-            // }
         }
-        // cg.delete().map_err(|e| e.to_string())?;
         Ok::<String, String>("Finished".to_string())
     });
 
