@@ -22,11 +22,15 @@ impl Resources {
     }
 
     pub fn countables(&self) -> &HashMap<String, u64> {
-        return &self.countables;
+        &self.countables
     }
 
     pub fn properties(&self) -> &HashMap<String, String> {
-        return &self.properties;
+        &self.properties
+    }
+
+    pub fn property(&self, key: &str) -> Option<&String> {
+        self.properties.get(key)
     }
 
     pub fn get_countable(&self, key: &str) -> u64 {
