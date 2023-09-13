@@ -11,7 +11,6 @@ use crate::resources::Resources;
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct JobConfiguration {
-    #[serde(default)]
     pub uid: u32,
     #[serde(default)]
     pub gid: Option<u32>,
