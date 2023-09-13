@@ -12,8 +12,7 @@ use crate::resources::Resources;
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct JobConfiguration {
     pub uid: u32,
-    #[serde(default)]
-    pub gid: Option<u32>,
+    pub gid: u32,
     pub name: String,
     #[serde(default)]
     pub time_limit: u64,
@@ -35,10 +34,8 @@ impl JobConfiguration {
                 panic!("Failed to switch user!")
             }
 
-            if let Some(gid) = self.gid {
-                if setegid(gid) != 0 {
-                    panic!("Failed to set group!")
-                }
+            if setegid(self.gid) != 0 {
+                panic!("Failed to set group!")
             }
         };
 
@@ -46,10 +43,20 @@ impl JobConfiguration {
 
         let time_limit = timeout(Duration::from_secs(self.time_limit), execution).await;
 
+        unsafe {
+            if seteuid(0) != 0 {
+                panic!("Failed to switch user!")
+            }
+
+            if setegid(0) != 0 {
+                panic!("Failed to set group!")
+            }
+        }
+
         if let Ok(execution) = time_limit {
             execution
         } else {
-            panic!("jobs timeout")
+            Err((1, "Timeout".to_string()))
         }
     }
 }
@@ -121,7 +128,6 @@ impl Phase {
         }
     }
 }
-
 
 #[derive(Clone, Copy, Serialize, Deserialize, Debug)]
 pub enum ProcessStatus {
