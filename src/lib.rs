@@ -26,7 +26,7 @@ pub mod config {
     }
 }
 
-pub mod resouces_manage {
+pub mod resources_manage {
     use std::collections::{HashMap, HashSet};
 
     pub struct Countables(HashMap<String, usize>);
