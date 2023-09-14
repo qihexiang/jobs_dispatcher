@@ -127,6 +127,7 @@ async fn submit_job(
             (username.to_string(), task_id.clone()), VertexJobStatus::Running(job_configuration.clone(), now_to_secs())
         );
         let jobs = state.jobs.clone();
+        let task_id_supervisor = task_id.clone();
         spawn(move || {
             let program = env::current_exe().unwrap();
             let mut command = Command::new(program)
@@ -137,12 +138,12 @@ async fn submit_job(
             let exit_status = command.wait().unwrap();
             let mut jobs = jobs.write().unwrap();
             if exit_status.success() {
-                jobs.insert((username, task_id), VertexJobStatus::Finished(job_configuration, now_to_secs()));
+                jobs.insert((username, task_id_supervisor), VertexJobStatus::Finished(job_configuration, now_to_secs()));
             } else {
-                jobs.insert((username, task_id), VertexJobStatus::Error { configuration: job_configuration, status_code: exit_status.code().unwrap_or(1), error_message: exit_status.to_string(), exit_at: now_to_secs() });
+                jobs.insert((username, task_id_supervisor), VertexJobStatus::Error { configuration: job_configuration, status_code: exit_status.code().unwrap_or(1), error_message: exit_status.to_string(), exit_at: now_to_secs() });
             }
         });
-        (StatusCode::OK, "Job submited").into_response()
+        (StatusCode::OK, task_id).into_response()
     } else {
         (StatusCode::SERVICE_UNAVAILABLE, "Resources not enough").into_response()
     }
