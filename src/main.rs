@@ -1,7 +1,10 @@
 use clap::{Parser, Subcommand};
 
+pub mod server;
+pub mod utils;
 mod executor;
 mod supervisor;
+mod vertex;
 
 pub mod jobs_management;
 pub mod queue_management;
@@ -21,7 +24,7 @@ enum SubCommands {
         config: String,
     },
     Vertex {
-        config: String,
+        config_path: String,
     },
     Supervisor {
         task_id: String,
@@ -41,6 +44,9 @@ async fn main() {
         }
         SubCommands::Supervisor { task_id, data } => {
             supervisor::supervisor(&task_id, &data);
+        }
+        SubCommands::Vertex { config_path } => {
+            vertex::vertex(&config_path).await;
         }
         _ => {
             todo!()

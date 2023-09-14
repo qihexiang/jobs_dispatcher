@@ -1,7 +1,9 @@
 use std::collections::HashSet;
+use serde::{Serialize, Deserialize};
 
 use crate::{resources_management::{NodesRequirement, ResourcesRequirement}, jobs_management::JobConfiguration};
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct QueueConfiguration {
     priority_rule: Vec<PriorityRule>,
     users: IdControl,
@@ -52,6 +54,7 @@ impl QueueConfiguration {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum IdControl {
     Allow(HashSet<u32>),
     Deny(HashSet<u32>),
@@ -66,11 +69,13 @@ impl IdControl {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AmountLimit {
     max_running: usize,
     max_queue: usize,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum PriorityRule {
     CpusetRule(f64, f64, f64),
     CountableRule(String, f64, f64),

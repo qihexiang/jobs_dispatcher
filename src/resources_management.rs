@@ -1,4 +1,4 @@
-use std::collections::{hash_set, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -17,8 +17,16 @@ impl PartialOrd for Countables {
 }
 
 impl Countables {
+    fn get_all_mut(&mut self) -> &mut HashMap<String, usize> {
+        &mut self.0
+    }
+
     pub fn get_all(&self) -> &HashMap<String, usize> {
         &self.0
+    }
+
+    pub fn set(&mut self, k: &str, v: usize) {
+        self.get_all_mut().insert(k.to_string(), v);
     }
 
     pub fn get(&self, k: &str) -> usize {
@@ -90,6 +98,14 @@ impl NodesRequirement {
             None
         }
     }
+
+    pub fn take_set(&self) -> &HashSet<usize> {
+        if let Self::Select(set) = self {
+            set
+        } else {
+            panic!("Invalid usage: Not NodesRequirement::Select")
+        }
+    }
 }
 
 impl PartialOrd for NodesRequirement {
@@ -148,11 +164,12 @@ impl PartialOrd for ResourcesRequirement {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ResourcesProvider {
-    cpus: NodeSet,
-    mems: NodeSet,
-    countables: Countables,
-    properties: Properties,
+    pub cpus: NodeSet,
+    pub mems: NodeSet,
+    pub countables: Countables,
+    pub properties: Properties,
 }
 
 impl ResourcesProvider {
