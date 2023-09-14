@@ -17,6 +17,7 @@ lazy_static = "1.4.0"
 regex = "1.9.5"
 chrono = "0.4.30"
 libc = "0.2.148"
+clap = {version = "4.4.3", features = ["cargo", "derive"]}
 
 [dependencies.uuid]
 version = "1.4.1"
