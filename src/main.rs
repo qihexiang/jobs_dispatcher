@@ -1,5 +1,3 @@
-use std::process::Command;
-
 use clap::{Parser, Subcommand};
 
 pub mod server;
