@@ -1,7 +1,95 @@
-use std::collections::HashSet;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 
-use crate::{resources_management::{NodesRequirement, ResourcesRequirement}, jobs_management::JobConfiguration};
+use crate::{
+    jobs_management::JobConfiguration,
+    resources_management::{NodesRequirement, ResourcesRequirement},
+    utils::now_to_secs,
+};
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Queue {
+    configuration: QueueConfiguration,
+    jobs: Vec<(String, JobConfiguration, Option<u64>)>,
+    running: HashMap<String, JobConfiguration>,
+}
+
+impl Queue {
+    pub fn queue_to_running(&mut self, task_id: &str) -> Option<()> {
+        let in_queue = self.jobs.iter().position(|(id, _, _)| id == task_id)?;
+        let (_, job_conf, _) = &self.jobs[in_queue];
+        self.running.insert(task_id.to_string(), job_conf.clone());
+        self.jobs.remove(in_queue);
+        Some(())
+    }
+
+    pub fn refresh_running(&mut self, running_ids: &HashSet<String>) {
+        self.running = self
+            .running
+            .clone()
+            .into_iter()
+            .filter(|(id, _)| running_ids.contains(id))
+            .collect::<HashMap<_, _>>()
+    }
+
+    pub fn refresh_jobs(&mut self) {
+        while let Some(idx) =
+            self.jobs
+                .iter()
+                .position(|(_, JobConfiguration { uid, gid, .. }, in_queue)| {
+                    in_queue.is_none() && self.queueable(*uid, *gid)
+                })
+        {
+            self.jobs[idx].2 = Some(now_to_secs())
+        }
+    }
+
+    pub fn queueable(&self, uid: u32, gid: u32) -> bool {
+        !self.queue_full() && !self.queue_full_user(uid) && !self.queue_full_group(gid)
+    }
+
+    fn queue_full(&self) -> bool {
+        if let Some(AmountLimit { max_queue, .. }) = &self.configuration.global_limit {
+            &self
+                .jobs
+                .iter()
+                .filter(|(_, _, in_queue)| in_queue.is_some())
+                .collect::<Vec<_>>()
+                .len()
+                >= max_queue
+        } else {
+            false
+        }
+    }
+    fn queue_full_user(&self, uid: u32) -> bool {
+        if let Some(AmountLimit { max_queue, .. }) = &self.configuration.user_limit {
+            &self
+                .jobs
+                .iter()
+                .filter(|(_, conf, _)| conf.uid == uid)
+                .filter(|(_, _, in_queue)| in_queue.is_some())
+                .collect::<Vec<_>>()
+                .len()
+                >= max_queue
+        } else {
+            false
+        }
+    }
+    fn queue_full_group(&self, gid: u32) -> bool {
+        if let Some(AmountLimit { max_queue, .. }) = &self.configuration.group_limit {
+            &self
+                .jobs
+                .iter()
+                .filter(|(_, conf, _)| conf.gid == gid)
+                .filter(|(_, _, in_queue)| in_queue.is_some())
+                .collect::<Vec<_>>()
+                .len()
+                >= max_queue
+        } else {
+            false
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct QueueConfiguration {
@@ -16,7 +104,12 @@ pub struct QueueConfiguration {
 
 impl QueueConfiguration {
     pub fn can_be_added(&self, job: &JobConfiguration) -> bool {
-        let JobConfiguration { uid, gid, requirement, .. } = job;
+        let JobConfiguration {
+            uid,
+            gid,
+            requirement,
+            ..
+        } = job;
         self.users.allow(uid) && self.groups.allow(gid) && requirement <= &self.resources_limit
     }
 
@@ -44,10 +137,8 @@ impl QueueConfiguration {
                             priority += *auto_offset;
                         }
                     }
-                },
-                PriorityRule::WaitingRule(factor) => {
-                    priority += waited as f64 * factor
                 }
+                PriorityRule::WaitingRule(factor) => priority += waited as f64 * factor,
             }
         }
         priority
@@ -64,7 +155,7 @@ impl IdControl {
     fn allow(&self, id: &u32) -> bool {
         match self {
             Self::Allow(allowed) => allowed.contains(id),
-            Self::Deny(denied) => !denied.contains(id)
+            Self::Deny(denied) => !denied.contains(id),
         }
     }
 }
