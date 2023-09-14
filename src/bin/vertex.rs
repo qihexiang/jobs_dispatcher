@@ -222,6 +222,7 @@ async fn execute_job(
     TypedHeader(Authorization(basic)): TypedHeader<Authorization<Basic>>,
     Json(job_configuration): Json<JobConfiguration>,
 ) -> Result<axum::Json<JobStatus>, (StatusCode, String)> {
+    let mut job_configuration = job_configuration;
     let free_nodes = state.free_nodes();
     let occupied_nodes = match &job_configuration.cpus {
         Nodes::Select(nodes) => {
@@ -244,6 +245,13 @@ async fn execute_job(
             } else {
                 None
             }
+        },
+        Nodes::Auto => {
+            if free_nodes.len() > 0 {
+                Some(free_nodes)
+            } else {
+                None
+            }
         }
     }
     .map_or(
@@ -253,6 +261,7 @@ async fn execute_job(
         )),
         |node| Ok(node),
     )?;
+    job_configuration.cpus = Nodes::Select(occupied_nodes.clone());
     let task_id = Uuid::new_v4().to_string();
     let vertex = env::current_exe().unwrap();
     let executor_data = serde_json::to_string(&job_configuration)

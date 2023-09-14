@@ -5,14 +5,16 @@ use std::collections::{HashMap, HashSet};
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Nodes {
     Select(HashSet<usize>),
-    Use(usize)
+    Use(usize),
+    Auto
 }
 
 impl Nodes {
     pub fn to_hashset(&self) -> HashSet<usize> {
         match self {
             Self::Select(set) => set.clone(),
-            Self::Use(size) => (0..size - 1).collect::<_>()
+            Self::Use(size) => (0..size - 1).collect::<_>(),
+            Self::Auto => HashSet::new()
         }
     }
 }
