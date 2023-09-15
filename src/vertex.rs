@@ -2,7 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     fs,
     net::SocketAddr,
-    sync::{Arc, RwLock}, thread::spawn, process::Command, env,
+    sync::{Arc, RwLock}, thread::spawn, process::Command, env, str::FromStr,
 };
 
 use crate::{
@@ -12,7 +12,7 @@ use crate::{
 };
 use axum::{
     http::StatusCode,
-    extract::State,
+    extract::{State, Path},
     headers::{authorization::Basic, Authorization},
     middleware,
     response::{Response, IntoResponse},
@@ -60,7 +60,7 @@ pub async fn vertex(config_path: &str) {
     let app = Router::new()
         .route("/", get(get_free))
         .route("/jobs", get(get_jobs))
-        .route("/job", post(submit_job))
+        .route("/job/:task_id", post(submit_job))
         .layer(middleware::from_fn_with_state(
             state.configuration.basic.clone(),
             basic_check,
@@ -93,10 +93,12 @@ async fn get_jobs(
 }
 
 async fn submit_job(
+    Path(task_id): Path<String>,
     State(state): State<VertexState>,
     TypedHeader(Authorization(basic)): TypedHeader<Authorization<Basic>>,
     Json(job_configuration): Json<JobConfiguration>,
 ) -> Response {
+    let task_id = Uuid::from_str(&task_id).unwrap_or(Uuid::new_v4()).to_string();
     let mut available_resources = current_free(&state);
     if available_resources.mems.len() == 0 {
         available_resources.mems = HashSet::from([0]);
@@ -121,7 +123,6 @@ async fn submit_job(
                 available_resources.mems
             )
         };
-        let task_id = Uuid::new_v4().to_string();
         let username = basic.username().to_string();
         state.jobs.write().unwrap().insert(
             (username.to_string(), task_id.clone()), VertexJobStatus::Running(job_configuration.clone(), now_to_secs())
