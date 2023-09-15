@@ -1,7 +1,11 @@
 use clap::{Parser, Subcommand};
 
+pub mod server;
+pub mod utils;
 mod executor;
 mod supervisor;
+mod vertex;
+mod dispatcher;
 
 pub mod jobs_management;
 pub mod queue_management;
@@ -17,11 +21,10 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum SubCommands {
     Dispatcher {
-        #[arg(short, long)]
-        config: String,
+        config_path: String,
     },
     Vertex {
-        config: String,
+        config_path: String,
     },
     Supervisor {
         task_id: String,
@@ -40,7 +43,13 @@ async fn main() {
             executor::executor(&data);
         }
         SubCommands::Supervisor { task_id, data } => {
-            supervisor::supervisor(&task_id, &data);
+            supervisor::supervisor(&task_id, &data).await;
+        }
+        SubCommands::Vertex { config_path } => {
+            vertex::vertex(&config_path).await;
+        }
+        SubCommands::Dispatcher { config_path } => {
+            dispatcher::dispatcher(&config_path).await;
         }
         _ => {
             todo!()

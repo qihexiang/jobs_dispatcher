@@ -1,8 +1,12 @@
 use std::{
     env,
     ffi::CString,
-    os::unix::process::CommandExt,
-    process::{self, Command, Stdio},
+    process::{self, Stdio},
+};
+
+use tokio::{
+    process::Command,
+    time::{Duration, timeout},
 };
 
 use cgroups_rs::{cgroup_builder::CgroupBuilder, hierarchies, CgroupPid};
@@ -11,7 +15,7 @@ use crate::jobs_management::JobConfiguration;
 
 use libc::chown;
 
-pub fn supervisor(task_id: &str, data: &str) {
+pub async fn supervisor(task_id: &str, data: &str) {
     println!("Parsing job configuration");
     let job_configuration: JobConfiguration = serde_json::from_str(&data).unwrap();
     println!("Create cgroup");
@@ -52,7 +56,7 @@ pub fn supervisor(task_id: &str, data: &str) {
     }
     println!("Start executor");
     let program = env::current_exe().unwrap();
-    let exit_status = Command::new(program)
+    let mut child = Command::new(program)
         .arg("executor")
         .arg(data)
         .uid(job_configuration.uid)
@@ -60,12 +64,21 @@ pub fn supervisor(task_id: &str, data: &str) {
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr))
         .spawn()
-        .unwrap()
-        .wait()
         .unwrap();
-    println!("Executor exited. \n{:#?}", exit_status);
+
+    let exit_status = child.wait();
+    let time_limit = timeout(Duration::from_secs(job_configuration.requirement.countables.get("time_limit") as u64), exit_status).await;
+    if let Ok(exit_status) = time_limit {
+        println!("Executor exited. \n{:#?}", exit_status.unwrap());
+    } else {
+        child.kill().await.unwrap();
+        println!("Time limit reached!");
+    }
+    
     println!("Clean cgroup");
-    cgroup.remove_task_by_tgid(CgroupPid::from(process::id() as u64)).unwrap();
+    cgroup
+        .remove_task_by_tgid(CgroupPid::from(process::id() as u64))
+        .unwrap();
     cgroup.kill().unwrap();
     cgroup.delete().unwrap();
     println!("Cgroup cleaned, exit.")
