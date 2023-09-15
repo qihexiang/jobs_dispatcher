@@ -6,7 +6,6 @@ mod executor;
 mod supervisor;
 mod vertex;
 mod dispatcher;
-
 pub mod jobs_management;
 pub mod queue_management;
 pub mod resources_management;
@@ -56,3 +55,4 @@ async fn main() {
         }
     }
 }
+
