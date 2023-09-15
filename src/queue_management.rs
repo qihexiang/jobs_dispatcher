@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 use std::collections::{HashMap, HashSet};
 
 use crate::{
@@ -15,6 +16,37 @@ pub struct Queue {
 }
 
 impl Queue {
+    pub fn jobs_submitable(&mut self) -> Vec<(&String, &JobConfiguration, &u64)> {
+        if self.running_full() {
+            Vec::new()
+        } else {
+            self.jobs_in_queue().into_iter().filter(|(_, JobConfiguration {uid, gid, ..}, _)| {
+                !self.running_full_user(*uid) && !self.running_full_group(*gid)
+            }).collect::<Vec<_>>()
+        }
+    }
+
+    pub fn jobs_in_queue(&self) -> Vec<(&String, &JobConfiguration, &u64)> {
+        self.jobs.iter().filter_map(|(id, job, waited)| {
+            if let Some(waited) = waited {
+                Some((id, job, waited))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>()
+    }
+
+    pub fn add_to_queue(&mut self, job: &JobConfiguration) -> Result<String, ()> {
+        if self.configuration.can_be_added(job) {
+            let task_id = Uuid::new_v4();
+            self.jobs.push((task_id.to_string(), job.clone(), None));
+            Ok(task_id.to_string())
+        } else {
+            Err(())
+        }
+    }
+
     pub fn queue_to_running(&mut self, task_id: &str) -> Option<()> {
         let in_queue = self.jobs.iter().position(|(id, _, _)| id == task_id)?;
         let (_, job_conf, _) = &self.jobs[in_queue];
@@ -49,45 +81,23 @@ impl Queue {
     }
 
     fn queue_full(&self) -> bool {
-        if let Some(AmountLimit { max_queue, .. }) = &self.configuration.global_limit {
-            &self
-                .jobs
-                .iter()
-                .filter(|(_, _, in_queue)| in_queue.is_some())
-                .collect::<Vec<_>>()
-                .len()
-                >= max_queue
-        } else {
-            false
-        }
+        Some(self.jobs_in_queue().len()) >= self.configuration.global_limit.as_ref().map(|limit| limit.max_queue)
     }
     fn queue_full_user(&self, uid: u32) -> bool {
-        if let Some(AmountLimit { max_queue, .. }) = &self.configuration.user_limit {
-            &self
-                .jobs
-                .iter()
-                .filter(|(_, conf, _)| conf.uid == uid)
-                .filter(|(_, _, in_queue)| in_queue.is_some())
-                .collect::<Vec<_>>()
-                .len()
-                >= max_queue
-        } else {
-            false
-        }
+        Some(self.jobs_in_queue().iter().filter(|(_, job, _)| job.uid == uid).collect::<Vec<_>>().len()) >= self.configuration.user_limit.as_ref().map(|limit| limit.max_queue)
     }
     fn queue_full_group(&self, gid: u32) -> bool {
-        if let Some(AmountLimit { max_queue, .. }) = &self.configuration.group_limit {
-            &self
-                .jobs
-                .iter()
-                .filter(|(_, conf, _)| conf.gid == gid)
-                .filter(|(_, _, in_queue)| in_queue.is_some())
-                .collect::<Vec<_>>()
-                .len()
-                >= max_queue
-        } else {
-            false
-        }
+        Some(self.jobs_in_queue().iter().filter(|(_, job, _)| job.gid == gid).collect::<Vec<_>>().len()) >= self.configuration.group_limit.as_ref().map(|limit| limit.max_queue)
+    }
+
+    fn running_full(&self) -> bool {
+        Some(self.jobs_in_queue().len()) >= self.configuration.global_limit.as_ref().map(|limit| limit.max_running)
+    }
+    fn running_full_user(&self, uid: u32) -> bool {
+        Some(self.jobs_in_queue().iter().filter(|(_, job, _)| job.uid == uid).collect::<Vec<_>>().len()) >= self.configuration.user_limit.as_ref().map(|limit| limit.max_running)
+    }
+    fn running_full_group(&self, gid: u32) -> bool {
+        Some(self.jobs_in_queue().iter().filter(|(_, job, _)| job.gid == gid).collect::<Vec<_>>().len()) >= self.configuration.group_limit.as_ref().map(|limit| limit.max_running)
     }
 }
 
