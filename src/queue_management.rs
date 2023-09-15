@@ -16,6 +16,10 @@ pub struct Queue {
 }
 
 impl Queue {
+    pub fn new(configuration: &QueueConfiguration) -> Self {
+        Self { configuration: configuration.clone(), jobs: Vec::new(), running: HashMap::new() }
+    }
+
     pub fn jobs_submitable(&mut self) -> Vec<(&String, &JobConfiguration, &u64)> {
         if self.running_full() {
             Vec::new()
