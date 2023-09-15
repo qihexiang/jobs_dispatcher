@@ -76,6 +76,20 @@ impl Properties {
     pub fn matches(&self, k: &str, v: &str) -> bool {
         self.get(k).map(|value| value == v).unwrap_or(false)
     }
+
+    pub fn extend(&mut self, Self(other): &Self) {
+        self.0.extend(other.clone())
+    }
+
+    pub fn conflict(&self, Self(other): &Self) -> bool {
+        self.0.keys().any(|key| {
+            if let Some(other_value) = other.get(key) {
+                other_value != &self.0[key]
+            } else {
+                false
+            }
+        })
+    }
 }
 
 pub type NodeSet = HashSet<usize>;
@@ -162,22 +176,6 @@ pub struct ResourcesRequirement {
     pub properties: Properties,
 }
 
-impl PartialOrd for ResourcesRequirement {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        if self == other {
-            Some(std::cmp::Ordering::Equal)
-        } else if self.cpus > other.cpus
-            || self.mems > other.mems
-            || self.countables > other.countables
-            || self.properties > other.properties
-        {
-            Some(std::cmp::Ordering::Greater)
-        } else {
-            Some(std::cmp::Ordering::Less)
-        }
-    }
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ResourcesProvider {
     pub cpus: NodeSet,
@@ -198,32 +196,18 @@ impl ResourcesProvider {
     }
 
     fn cpus_acceptable(&self, requirement: &NodesRequirement) -> bool {
-        match requirement {
-            NodesRequirement::Auto => self.cpus.len() > 0,
-            NodesRequirement::Use(size) => self.cpus.len() >= *size,
-            NodesRequirement::Select(required) => required.is_subset(&self.cpus),
-        }
+        requirement <= &NodesRequirement::Select(self.cpus.clone())
     }
 
     fn mems_acceptable(&self, requirement: &NodesRequirement) -> bool {
-        match requirement {
-            NodesRequirement::Auto => self.mems.len() > 0,
-            NodesRequirement::Use(size) => self.mems.len() >= *size,
-            NodesRequirement::Select(required) => required.is_subset(&self.mems),
-        }
+        requirement <= &NodesRequirement::Select(self.mems.clone())
     }
 
     fn countables_acceptable(&self, requirement: &Countables) -> bool {
-        let requirement = requirement.get_all();
-        requirement
-            .keys()
-            .all(|k| self.countables.enough(k, requirement[k]))
+        requirement <= &self.countables
     }
 
     fn properties_acceptable(&self, requirement: &Properties) -> bool {
-        let requirement = requirement.get_all();
-        requirement
-            .keys()
-            .all(|k| self.properties.matches(k, &requirement[k]))
+        requirement <= &self.properties
     }
 }
