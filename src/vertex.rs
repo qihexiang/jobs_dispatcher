@@ -68,7 +68,7 @@ pub async fn vertex(config_path: &str) {
         .with_state(state.clone());
     let addr = SocketAddr::from((state.configuration.http.ip, state.configuration.http.port));
     axum::Server::bind(&addr)
-        .serve(app.into_make_service_with_connect_info::<SocketAddr>())
+        .serve(app.into_make_service())
         .await
         .unwrap();
 }
