@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     jobs_management::JobConfiguration,
-    resources_management::{NodesRequirement, ResourcesRequirement},
+    resources_management::{NodesRequirement, ResourcesRequirement, Properties},
     utils::now_to_secs,
 };
 
@@ -44,6 +44,8 @@ impl Queue {
     pub fn add_to_queue(&mut self, job: &JobConfiguration) -> Result<String, ()> {
         if self.configuration.can_be_added(job) {
             let task_id = Uuid::new_v4();
+            let mut job_configuration = job.clone();
+            job_configuration.requirement.properties.extend(&self.configuration.properties);
             self.jobs.push((task_id.to_string(), job.clone(), None));
             Ok(task_id.to_string())
         } else {
@@ -110,7 +112,7 @@ pub struct QueueConfiguration {
     priority_rule: Vec<PriorityRule>,
     users: IdControl,
     groups: IdControl,
-    resources_limit: ResourcesRequirement,
+    properties: Properties,
     global_limit: Option<AmountLimit>,
     user_limit: Option<AmountLimit>,
     group_limit: Option<AmountLimit>,
@@ -124,7 +126,7 @@ impl QueueConfiguration {
             requirement,
             ..
         } = job;
-        self.users.allow(uid) && self.groups.allow(gid) && requirement <= &self.resources_limit
+        self.users.allow(uid) && self.groups.allow(gid) && !self.properties.conflict(&requirement.properties) 
     }
 
     pub fn priority(&self, requirement: &ResourcesRequirement, waited: u64) -> f64 {
