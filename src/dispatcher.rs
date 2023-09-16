@@ -1,35 +1,33 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs,
     net::SocketAddr,
     sync::{Arc, RwLock},
+    time::Duration,
 };
 
 use crate::{
-    queue_management::{Queue, QueueConfiguration},
+    queue_management::{Queue, QueueConfiguration, QueueGroup},
     server::HttpServerConfig,
     utils::now_to_micros,
+    vertex_client::{VertexClient, VertexConnect},
 };
 
 use axum::{
+    middleware::MapRequest,
     routing::{get, post},
     Router,
 };
-use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct VertexConnect {
-    url: String,
-    username: String,
-    password: String,
-}
+use serde::{Deserialize, Serialize};
+use tokio::time::timeout;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct DispatcherConfig {
     http: HttpServerConfig,
     vertexes: HashMap<String, VertexConnect>,
-    vertex_lost: u128,
-    loop_interval: u128,
+    max_timeout: u64,
+    loop_interval: u64,
     queues: HashMap<String, QueueConfiguration>,
     persistent: String,
 }
@@ -37,8 +35,8 @@ struct DispatcherConfig {
 #[derive(Clone)]
 struct DispatcherCachedState {
     configuration: DispatcherConfig,
-    vertex_status: Arc<RwLock<HashMap<String, u128>>>,
-    queues: Arc<RwLock<HashMap<String, Queue>>>,
+    vertex_status: Arc<RwLock<HashMap<String, (VertexClient, u128)>>>,
+    queues: Arc<RwLock<QueueGroup>>,
 }
 
 pub async fn dispatcher(config_path: &str) {
@@ -56,32 +54,65 @@ pub async fn dispatcher(config_path: &str) {
     queue_in_conf.extend(persistent);
     let vertex_status = configuration
         .vertexes
-        .keys()
-        .map(|key| (key.clone(), now_to_micros()))
+        .iter()
+        .map(|(name, config)| (name.to_string(), (config.create(), now_to_micros())))
         .collect::<HashMap<_, _>>();
     let cached_state = DispatcherCachedState {
         configuration,
         vertex_status: Arc::new(RwLock::new(vertex_status)),
-        queues: Arc::new(RwLock::new(queue_in_conf)),
+        queues: Arc::new(RwLock::new(QueueGroup::new(queue_in_conf))),
     };
 
     let app = Router::new()
         .route("/", get(root))
         .with_state(cached_state.clone());
 
-    let addr = SocketAddr::from((cached_state.configuration.http.ip, cached_state.configuration.http.port));
-
-    // A thread for maintain all queues and vertexes connection
-    tokio::spawn(async move {
-        for (k, VertexConnect {url, username, password}) in &cached_state.configuration.vertexes {
-
-        }
-    });
+    let addr = SocketAddr::from((
+        cached_state.configuration.http.ip,
+        cached_state.configuration.http.port,
+    ));
 
     axum::Server::bind(&addr)
         .serve(app.into_make_service())
         .await
         .unwrap();
+
+    loop {
+        for (_, (client, last_connected)) in
+            cached_state.vertex_status.write().unwrap().iter_mut()
+        {
+            let request_free = client.free();
+            let request_free = timeout(
+                Duration::from_micros(cached_state.configuration.max_timeout),
+                request_free,
+            );
+            if let Ok(Ok(request_free)) = request_free.await {
+                *last_connected = now_to_micros();
+                let mut queues = cached_state.queues.write().unwrap();
+                while let Some((task_id, job, queue)) = queues.try_take_job(&request_free, false) {
+                    let resp = client.submit_job(&task_id, &job).await;
+                    if let Ok(resp) = resp {
+                        if let Some(_) = queues.truly_take_job(&queue, &task_id, &resp, &job) {
+                            println!("Submitted")
+                        } else {
+                            println!("Failed to submit job")
+                        }
+                    }
+                }
+            }
+            
+            let running_jobs = client.jobs();
+            let running_jobs = timeout(
+                Duration::from_micros(cached_state.configuration.max_timeout),
+                running_jobs,
+            );
+
+            if let Ok(Ok(runnings)) = running_jobs.await {
+                let running_ids = runnings.keys().cloned().collect::<HashSet<_>>();
+                cached_state.queues.write().unwrap().refresh_running(&running_ids);
+            }
+        }
+    }
 }
 
 async fn root() -> &'static str {

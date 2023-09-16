@@ -1,5 +1,6 @@
 use std::{collections::HashMap, env, process::Command};
 
+use reqwest::Body;
 use serde::{Deserialize, Serialize};
 
 use crate::resources_management::ResourcesRequirement;
@@ -50,6 +51,14 @@ pub struct JobConfiguration {
     pub stderr_file: String,
     pub requirement: ResourcesRequirement,
     phases: Vec<ExecutePhase>,
+}
+
+impl Into<Body> for JobConfiguration {
+    fn into(self) -> Body {
+        Body::from(
+            serde_json::to_string(&self).unwrap()
+        )
+    }
 }
 
 impl JobConfiguration {

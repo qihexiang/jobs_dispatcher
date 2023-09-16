@@ -1,12 +1,69 @@
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use std::collections::{HashMap, HashSet};
+use uuid::Uuid;
 
 use crate::{
     jobs_management::JobConfiguration,
-    resources_management::{NodesRequirement, ResourcesRequirement, Properties},
+    resources_management::{NodesRequirement, Properties, ResourcesProvider, ResourcesRequirement},
     utils::now_to_secs,
 };
+
+pub struct QueueGroup(HashMap<String, Queue>);
+
+impl QueueGroup {
+    pub fn new(queues: HashMap<String, Queue>) -> Self {
+        Self(queues)
+    }
+
+    pub fn try_take_job(&self, provider: &ResourcesProvider, exlusive_mem: bool) -> Option<(String, JobConfiguration, String)> {
+        let Self(queues) = &self;
+        let mut submitables = queues
+            .iter()
+            .map(|(name, queue)| (name, queue.jobs_submitable()))
+            .map(|(name, submitables)| {
+                submitables
+                    .into_iter()
+                    .map(|(task_id, job_conf, _, priority)| (task_id, job_conf, priority, name.clone()))
+            })
+            .flatten()
+            .collect::<Vec<_>>();
+        submitables.sort_by(|(_, _, a, _), (_, _, b, _)| b.partial_cmp(a).unwrap());
+        let available_job = submitables.into_iter().find(|(_, job, _, _)| {
+            if exlusive_mem {
+                provider.execlusive_mem_acceptable(&job.requirement)
+            } else {
+                provider.acceptable(&job.requirement)
+            }
+        });
+        if let Some((id, job, _, queue)) = available_job {
+            let id = id.clone();
+            let job = job.clone();
+            Some((id.clone(), job.clone(), queue))
+        } else {
+            None
+        }
+    }
+
+    pub fn truly_take_job(&mut self, queue: &str, send_id: &str, received_id: &str, job: &JobConfiguration) -> Option<()> {
+        if let Some(queue) = self.0.get_mut(queue) {
+            if let Some(_) = queue.remove_from_queue(send_id) {
+                queue.add_to_running(received_id, job);
+                queue.refresh_jobs();
+                Some(())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn refresh_running(&mut self, running_ids: &HashSet<String>) {
+        for (_, v) in self.0.iter_mut() {
+            v.refresh_running(running_ids)
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Queue {
@@ -17,43 +74,52 @@ pub struct Queue {
 
 impl Queue {
     pub fn new(configuration: &QueueConfiguration) -> Self {
-        Self { configuration: configuration.clone(), jobs: Vec::new(), running: HashMap::new() }
-    }
-
-    pub fn queues_submitable(queues: &Vec<Self>) -> Vec<(&String, &JobConfiguration, &u64, f64)> {
-        let mut jobs = Vec::new();
-        for queue in queues {
-            jobs.extend(queue.jobs_submitable())
+        Self {
+            configuration: configuration.clone(),
+            jobs: Vec::new(),
+            running: HashMap::new(),
         }
-        jobs
     }
 
     pub fn jobs_submitable(&self) -> Vec<(&String, &JobConfiguration, &u64, f64)> {
         if self.running_full() {
             Vec::new()
         } else {
-            self.jobs_in_queue().into_iter().filter(|(_, JobConfiguration {uid, gid, ..}, _, _)| {
-                !self.running_full_user(*uid) && !self.running_full_group(*gid)
-            }).collect::<Vec<_>>()
+            self.jobs_in_queue()
+                .into_iter()
+                .filter(|(_, JobConfiguration { uid, gid, .. }, _, _)| {
+                    !self.running_full_user(*uid) && !self.running_full_group(*gid)
+                })
+                .collect::<Vec<_>>()
         }
     }
 
     pub fn jobs_in_queue(&self) -> Vec<(&String, &JobConfiguration, &u64, f64)> {
-        self.jobs.iter().filter_map(|(id, job, waited)| {
-            if let Some(waited) = waited {
-                Some((id, job, waited, self.configuration.priority(&job.requirement, *waited)))
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>()
+        self.jobs
+            .iter()
+            .filter_map(|(id, job, waited)| {
+                if let Some(waited) = waited {
+                    Some((
+                        id,
+                        job,
+                        waited,
+                        self.configuration.priority(&job.requirement, *waited),
+                    ))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
     }
 
     pub fn add_to_queue(&mut self, job: &JobConfiguration) -> Result<String, ()> {
         if self.configuration.can_be_added(job) {
             let task_id = Uuid::new_v4();
             let mut job_configuration = job.clone();
-            job_configuration.requirement.properties.extend(&self.configuration.properties);
+            job_configuration
+                .requirement
+                .properties
+                .extend(&self.configuration.properties);
             self.jobs.push((task_id.to_string(), job.clone(), None));
             Ok(task_id.to_string())
         } else {
@@ -61,12 +127,18 @@ impl Queue {
         }
     }
 
-    pub fn queue_to_running(&mut self, task_id: &str) -> Option<()> {
-        let in_queue = self.jobs.iter().position(|(id, _, _)| id == task_id)?;
-        let (_, job_conf, _) = &self.jobs[in_queue];
-        self.running.insert(task_id.to_string(), job_conf.clone());
-        self.jobs.remove(in_queue);
-        Some(())
+    pub fn remove_from_queue(&mut self, task_id: &str) -> Option<()> {
+        let index = self.jobs.iter().position(|(id, _, _)| id == task_id);
+        if let Some(index) = index {
+            self.jobs.remove(index);
+            Some(())
+        } else {
+            None
+        }
+    }
+
+    pub fn add_to_running(&mut self, task_id: &str, job: &JobConfiguration) {
+        self.running.insert(task_id.to_string(), job.clone());
     }
 
     pub fn refresh_running(&mut self, running_ids: &HashSet<String>) {
@@ -95,23 +167,73 @@ impl Queue {
     }
 
     fn queue_full(&self) -> bool {
-        Some(self.jobs_in_queue().len()) >= self.configuration.global_limit.as_ref().map(|limit| limit.max_queue)
+        Some(self.jobs_in_queue().len())
+            >= self
+                .configuration
+                .global_limit
+                .as_ref()
+                .map(|limit| limit.max_queue)
     }
     fn queue_full_user(&self, uid: u32) -> bool {
-        Some(self.jobs_in_queue().iter().filter(|(_, job, _, _)| job.uid == uid).collect::<Vec<_>>().len()) >= self.configuration.user_limit.as_ref().map(|limit| limit.max_queue)
+        Some(
+            self.jobs_in_queue()
+                .iter()
+                .filter(|(_, job, _, _)| job.uid == uid)
+                .collect::<Vec<_>>()
+                .len(),
+        ) >= self
+            .configuration
+            .user_limit
+            .as_ref()
+            .map(|limit| limit.max_queue)
     }
     fn queue_full_group(&self, gid: u32) -> bool {
-        Some(self.jobs_in_queue().iter().filter(|(_, job, _, _)| job.gid == gid).collect::<Vec<_>>().len()) >= self.configuration.group_limit.as_ref().map(|limit| limit.max_queue)
+        Some(
+            self.jobs_in_queue()
+                .iter()
+                .filter(|(_, job, _, _)| job.gid == gid)
+                .collect::<Vec<_>>()
+                .len(),
+        ) >= self
+            .configuration
+            .group_limit
+            .as_ref()
+            .map(|limit| limit.max_queue)
     }
 
     fn running_full(&self) -> bool {
-        Some(self.jobs_in_queue().len()) >= self.configuration.global_limit.as_ref().map(|limit| limit.max_running)
+        Some(self.jobs_in_queue().len())
+            >= self
+                .configuration
+                .global_limit
+                .as_ref()
+                .map(|limit| limit.max_running)
     }
     fn running_full_user(&self, uid: u32) -> bool {
-        Some(self.jobs_in_queue().iter().filter(|(_, job, _, _)| job.uid == uid).collect::<Vec<_>>().len()) >= self.configuration.user_limit.as_ref().map(|limit| limit.max_running)
+        Some(
+            self.jobs_in_queue()
+                .iter()
+                .filter(|(_, job, _, _)| job.uid == uid)
+                .collect::<Vec<_>>()
+                .len(),
+        ) >= self
+            .configuration
+            .user_limit
+            .as_ref()
+            .map(|limit| limit.max_running)
     }
     fn running_full_group(&self, gid: u32) -> bool {
-        Some(self.jobs_in_queue().iter().filter(|(_, job, _, _)| job.gid == gid).collect::<Vec<_>>().len()) >= self.configuration.group_limit.as_ref().map(|limit| limit.max_running)
+        Some(
+            self.jobs_in_queue()
+                .iter()
+                .filter(|(_, job, _, _)| job.gid == gid)
+                .collect::<Vec<_>>()
+                .len(),
+        ) >= self
+            .configuration
+            .group_limit
+            .as_ref()
+            .map(|limit| limit.max_running)
     }
 }
 
@@ -134,7 +256,9 @@ impl QueueConfiguration {
             requirement,
             ..
         } = job;
-        self.users.allow(uid) && self.groups.allow(gid) && !self.properties.conflict(&requirement.properties) 
+        self.users.allow(uid)
+            && self.groups.allow(gid)
+            && !self.properties.conflict(&requirement.properties)
     }
 
     pub fn priority(&self, requirement: &ResourcesRequirement, waited: u64) -> f64 {
