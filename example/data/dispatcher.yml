@@ -1,0 +1,24 @@
+http:
+  ip: 127.0.0.1
+  port: 9501
+basic_auth:
+  localhost: nopassword
+vertexes:
+  localhost:
+    url: 127.0.0.1:9500
+    username: main
+    password: pass4main
+max_timeout: 300
+loop_interval: 5000
+queues:
+  main:
+    priority_rule: []
+    users: !Deny []
+    groups: !Deny []
+    properties: {}
+    global_limit:
+      max_running: 4
+      max_queue: 4
+    user_limit: null
+    group_limit: null
+persistent: "./dispatcher_persistent.json"
