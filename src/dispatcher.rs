@@ -10,13 +10,12 @@ use crate::{
     queue_management::{Queue, QueueConfiguration, QueueGroup},
     server::HttpServerConfig,
     utils::now_to_micros,
-    vertex_client::{VertexClient, VertexConnect},
+    vertex_client::{VertexClient, VertexConnect}, auth::basic_check,
 };
 
 use axum::{
-    middleware::MapRequest,
     routing::{get, post},
-    Router,
+    Router, middleware,
 };
 
 use serde::{Deserialize, Serialize};
@@ -25,6 +24,7 @@ use tokio::time::timeout;
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct DispatcherConfig {
     http: HttpServerConfig,
+    basic_auth: HashMap<String, String>,
     vertexes: HashMap<String, VertexConnect>,
     max_timeout: u64,
     loop_interval: u64,
@@ -65,6 +65,7 @@ pub async fn dispatcher(config_path: &str) {
 
     let app = Router::new()
         .route("/", get(root))
+        .layer(middleware::from_fn_with_state(cached_state.configuration.basic_auth.clone(), basic_check))
         .with_state(cached_state.clone());
 
     let addr = SocketAddr::from((
@@ -112,6 +113,7 @@ pub async fn dispatcher(config_path: &str) {
                 cached_state.queues.write().unwrap().refresh_running(&running_ids);
             }
         }
+        tokio::time::sleep(Duration::from_micros(cached_state.configuration.loop_interval)).await;
     }
 }
 
