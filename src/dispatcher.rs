@@ -1,30 +1,28 @@
 use std::{
     collections::{HashMap, HashSet},
     fs,
-    net::SocketAddr,
+    io::Result,
     sync::{Arc, RwLock},
     time::Duration,
 };
 
 use crate::{
+    jobs_management::JobConfiguration,
     queue_management::{Queue, QueueConfiguration, QueueGroup},
-    server::HttpServerConfig,
     utils::now_to_micros,
-    vertex_client::{VertexClient, VertexConnect}, auth::basic_check,
-};
-
-use axum::{
-    routing::{get, post},
-    Router, middleware,
+    vertex_client::{VertexClient, VertexConnect},
 };
 
 use serde::{Deserialize, Serialize};
-use tokio::time::timeout;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{unix::UCred, UnixListener, UnixStream},
+    time::timeout,
+};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct DispatcherConfig {
-    http: HttpServerConfig,
-    basic_auth: HashMap<String, String>,
+    listen: String,
     vertexes: HashMap<String, VertexConnect>,
     max_timeout: u64,
     loop_interval: u64,
@@ -63,24 +61,41 @@ pub async fn dispatcher(config_path: &str) {
         queues: Arc::new(RwLock::new(QueueGroup::new(queue_in_conf))),
     };
 
-    let app = Router::new()
-        .route("/", get(root))
-        .layer(middleware::from_fn_with_state(cached_state.configuration.basic_auth.clone(), basic_check))
-        .with_state(cached_state.clone());
-
-    let addr = SocketAddr::from((
-        cached_state.configuration.http.ip,
-        cached_state.configuration.http.port,
-    ));
-
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
+    let server_state = cached_state.clone();
+    tokio::spawn(async move {
+        let socket = UnixListener::bind(&server_state.configuration.listen).unwrap();
+        loop {
+            match socket.accept().await {
+                Ok((mut stream, _)) => {
+                    if let Ok(request) = get_request(&mut stream).await {
+                        if let Ok(ucred) = stream.peer_cred() {
+                            let mut status = server_state.clone();
+                            let response = request.handle(&mut status, &ucred).await;
+                            let _ = stream
+                                .write_all(serde_json::to_string(&response).unwrap().as_bytes())
+                                .await;
+                            let _ = stream.shutdown().await;
+                            return ()
+                        }
+                    }
+                    let _ = stream
+                        .write_all(
+                            serde_json::to_string(&DispatcherResponse::InvalidRequest)
+                                .unwrap()
+                                .as_bytes(),
+                        )
+                        .await;
+                    let _ = stream.shutdown().await;
+                }
+                Err(err) => {
+                    println!("Error: {:#?}", err);
+                }
+            }
+        }
+    });
 
     loop {
-        for (_, (client, last_connected)) in
-            cached_state.vertex_status.write().unwrap().iter_mut()
+        for (_, (client, last_connected)) in cached_state.vertex_status.write().unwrap().iter_mut()
         {
             let request_free = client.free();
             let request_free = timeout(
@@ -101,7 +116,7 @@ pub async fn dispatcher(config_path: &str) {
                     }
                 }
             }
-            
+
             let running_jobs = client.jobs();
             let running_jobs = timeout(
                 Duration::from_micros(cached_state.configuration.max_timeout),
@@ -110,13 +125,81 @@ pub async fn dispatcher(config_path: &str) {
 
             if let Ok(Ok(runnings)) = running_jobs.await {
                 let running_ids = runnings.keys().cloned().collect::<HashSet<_>>();
-                cached_state.queues.write().unwrap().refresh_running(&running_ids);
+                cached_state
+                    .queues
+                    .write()
+                    .unwrap()
+                    .refresh_running(&running_ids);
             }
         }
-        tokio::time::sleep(Duration::from_micros(cached_state.configuration.loop_interval)).await;
+        tokio::time::sleep(Duration::from_micros(
+            cached_state.configuration.loop_interval,
+        ))
+        .await;
     }
 }
 
-async fn root() -> &'static str {
-    "Hello, World!"
+async fn get_request(stream: &mut UnixStream) -> Result<ClientRequest> {
+    let mut content = String::new();
+    let _size = stream.read_to_string(&mut content).await?;
+    let request: ClientRequest = serde_json::from_str(&content)?;
+    Ok(request)
+}
+
+#[derive(Serialize, Deserialize)]
+enum ClientRequest {
+    SubmitJob(String, JobConfiguration),
+    DeleteJob(String),
+    Status,
+}
+
+impl ClientRequest {
+    async fn handle(self, status: &mut DispatcherCachedState, ucred: &UCred) -> DispatcherResponse {
+        match self {
+            Self::SubmitJob(queue, mut job) => {
+                if ucred.uid() != 0 {
+                    job.uid = ucred.uid();
+                    job.gid = ucred.gid();
+                }
+                let submit = status.queues.write().unwrap().add_to_queue(&queue, &job);
+                if let Ok(task_id) = submit {
+                    DispatcherResponse::SubmitSuccess(task_id)
+                } else {
+                    DispatcherResponse::SubmitFailed
+                }
+            }
+            Self::DeleteJob(task_id) => {
+                let uid = ucred.uid();
+                if let Some(result) = status.queues.write().unwrap().remove_job(&task_id, uid) {
+                    if let Ok(_) = result {
+                        DispatcherResponse::DeleteSuccess
+                    } else {
+                        DispatcherResponse::DeleteFailed(DispatcherFailReasons::PermissionDenied)
+                    }
+                } else {
+                    DispatcherResponse::DeleteFailed(DispatcherFailReasons::NotFound)
+                }
+            }
+            Self::Status => {
+                // DispatcherResponse::Status(())
+                todo!()
+            }
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+enum DispatcherResponse {
+    InvalidRequest,
+    SubmitSuccess(String),
+    SubmitFailed,
+    DeleteSuccess,
+    DeleteFailed(DispatcherFailReasons),
+    Status(),
+}
+
+#[derive(Serialize, Deserialize)]
+enum DispatcherFailReasons {
+    PermissionDenied,
+    NotFound,
 }

@@ -15,7 +15,33 @@ impl QueueGroup {
         Self(queues)
     }
 
-    pub fn try_take_job(&self, provider: &ResourcesProvider, exlusive_mem: bool) -> Option<(String, JobConfiguration, String)> {
+    pub fn add_to_queue(&mut self, queue: &str, job: &JobConfiguration) -> Result<String, ()> {
+        if let Some(queue) = self.0.get_mut(queue) {
+            queue.add_to_queue(job)
+        } else {
+            Err(())
+        }
+    }
+
+    pub fn remove_job(&mut self, task_id: &str, uid: u32) -> Option<Result<(), ()>> {
+        for (_, queue) in self.0.iter_mut() {
+            if let Some(index) = queue.jobs.iter().position(|(id, _, _)| id == task_id) {
+                return Some(if queue.jobs[index].1.uid == uid || uid == 0 {
+                    queue.jobs.remove(index);
+                    Ok(())
+                } else {
+                    Err(())
+                });
+            }
+        }
+        None
+    }
+
+    pub fn try_take_job(
+        &self,
+        provider: &ResourcesProvider,
+        exlusive_mem: bool,
+    ) -> Option<(String, JobConfiguration, String)> {
         let Self(queues) = &self;
         let mut submitables = queues
             .iter()
@@ -23,7 +49,9 @@ impl QueueGroup {
             .map(|(name, submitables)| {
                 submitables
                     .into_iter()
-                    .map(|(task_id, job_conf, _, priority)| (task_id, job_conf, priority, name.clone()))
+                    .map(|(task_id, job_conf, _, priority)| {
+                        (task_id, job_conf, priority, name.clone())
+                    })
             })
             .flatten()
             .collect::<Vec<_>>();
@@ -44,7 +72,13 @@ impl QueueGroup {
         }
     }
 
-    pub fn truly_take_job(&mut self, queue: &str, send_id: &str, received_id: &str, job: &JobConfiguration) -> Option<()> {
+    pub fn truly_take_job(
+        &mut self,
+        queue: &str,
+        send_id: &str,
+        received_id: &str,
+        job: &JobConfiguration,
+    ) -> Option<()> {
         if let Some(queue) = self.0.get_mut(queue) {
             if let Some(_) = queue.remove_from_queue(send_id) {
                 queue.add_to_running(received_id, job);
