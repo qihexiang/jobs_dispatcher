@@ -75,17 +75,26 @@ pub async fn dispatcher(config_path: &str) {
                                 .write_all(serde_json::to_string(&response).unwrap().as_bytes())
                                 .await;
                             let _ = stream.shutdown().await;
-                            return ()
+                        } else {
+                            let _ = stream
+                                .write_all(
+                                    serde_json::to_string(&DispatcherResponse::InvalidRequest)
+                                        .unwrap()
+                                        .as_bytes(),
+                                )
+                                .await;
+                            let _ = stream.shutdown().await;
                         }
+                    } else {
+                        let _ = stream
+                            .write_all(
+                                serde_json::to_string(&DispatcherResponse::InvalidRequest)
+                                    .unwrap()
+                                    .as_bytes(),
+                            )
+                            .await;
+                        let _ = stream.shutdown().await;
                     }
-                    let _ = stream
-                        .write_all(
-                            serde_json::to_string(&DispatcherResponse::InvalidRequest)
-                                .unwrap()
-                                .as_bytes(),
-                        )
-                        .await;
-                    let _ = stream.shutdown().await;
                 }
                 Err(err) => {
                     println!("Error: {:#?}", err);
