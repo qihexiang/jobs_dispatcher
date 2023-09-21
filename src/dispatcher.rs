@@ -7,7 +7,6 @@ use std::{
 };
 
 use crate::{
-    jobs_management::JobConfiguration,
     queue_management::{Queue, QueueConfiguration, QueueGroup},
     utils::now_to_micros,
     vertex_client::{VertexClient, VertexConnect}, unix::{DispatcherResponse, ClientRequest, DispatcherFailReasons},

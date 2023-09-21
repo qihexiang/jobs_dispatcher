@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use client::ClientCommands;
 
 pub mod client;
 pub mod http;
@@ -36,6 +37,10 @@ enum SubCommands {
     Executor {
         data: String,
     },
+    Client {
+        #[command(subcommand)]
+        operation: ClientCommands
+    }
 }
 
 #[tokio::main]
@@ -54,8 +59,8 @@ async fn main() {
         SubCommands::Dispatcher { config_path } => {
             dispatcher::dispatcher(&config_path).await;
         }
-        _ => {
-            todo!()
+        SubCommands::Client { operation } => {
+            client::client(operation).await;
         }
     }
 }

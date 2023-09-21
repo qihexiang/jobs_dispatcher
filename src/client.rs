@@ -1,16 +1,22 @@
 use std::{env, time::Duration};
 
+use clap::Subcommand;
 use tokio::{
     fs,
     io::{AsyncReadExt, AsyncWriteExt},
-    net::UnixStream, time::timeout,
+    net::UnixStream,
+    time::timeout,
 };
 
-use crate::{jobs_management::JobConfiguration, unix::{ClientRequest, DispatcherResponse}, Cli};
+use crate::{
+    jobs_management::JobConfiguration,
+    unix::{ClientRequest, DispatcherResponse},
+};
 
+#[derive(Subcommand, Debug)]
 pub enum ClientCommands {
-    Submit(String, String),
-    Delete(String),
+    Submit { queue: String, filepath: String },
+    Delete { id: String },
     Status,
 }
 
@@ -21,13 +27,13 @@ pub async fn client(command: ClientCommands) {
     .await
     .unwrap();
     let request = match command {
-        ClientCommands::Submit(queue, filepath) => {
+        ClientCommands::Submit { queue, filepath } => {
             let content = fs::read_to_string(filepath).await.unwrap();
             let job: JobConfiguration = serde_yaml::from_str(&content).unwrap();
             ClientRequest::SubmitJob(queue, job)
         }
-        ClientCommands::Delete(id) => ClientRequest::DeleteJob(id),
-        ClientCommands::Status => ClientRequest::Status
+        ClientCommands::Delete { id } => ClientRequest::DeleteJob(id),
+        ClientCommands::Status => ClientRequest::Status,
     };
     let data = serde_json::to_string(&request).unwrap();
     let data = data.as_bytes();
