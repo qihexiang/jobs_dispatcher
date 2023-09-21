@@ -8,7 +8,7 @@ use std::{
 use crate::{
     jobs_management::JobConfiguration,
     resources_management::{ResourcesProvider, ResourcesRequirement, NodesRequirement},
-    server::{basic_check, HttpServerConfig}, utils::now_to_secs,
+    http::{basic_check, HttpServerConfig}, utils::now_to_secs,
 };
 use axum::{
     http::StatusCode,

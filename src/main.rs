@@ -1,6 +1,8 @@
 use clap::{Parser, Subcommand};
 
-pub mod server;
+pub mod client;
+pub mod http;
+pub mod unix;
 pub mod utils;
 pub mod auth;
 pub mod vertex_client;

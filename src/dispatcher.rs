@@ -10,7 +10,7 @@ use crate::{
     jobs_management::JobConfiguration,
     queue_management::{Queue, QueueConfiguration, QueueGroup},
     utils::now_to_micros,
-    vertex_client::{VertexClient, VertexConnect},
+    vertex_client::{VertexClient, VertexConnect}, unix::{DispatcherResponse, ClientRequest, DispatcherFailReasons},
 };
 
 use serde::{Deserialize, Serialize};
@@ -159,13 +159,6 @@ async fn get_request(stream: &mut UnixStream) -> Result<ClientRequest> {
     Ok(request)
 }
 
-#[derive(Serialize, Deserialize)]
-enum ClientRequest {
-    SubmitJob(String, JobConfiguration),
-    DeleteJob(String),
-    Status,
-}
-
 impl ClientRequest {
     async fn handle(self, status: &mut DispatcherCachedState, ucred: &UCred) -> DispatcherResponse {
         match self {
@@ -199,20 +192,4 @@ impl ClientRequest {
             }
         }
     }
-}
-
-#[derive(Serialize, Deserialize)]
-enum DispatcherResponse {
-    InvalidRequest,
-    SubmitSuccess(String),
-    SubmitFailed,
-    DeleteSuccess,
-    DeleteFailed(DispatcherFailReasons),
-    Status(),
-}
-
-#[derive(Serialize, Deserialize)]
-enum DispatcherFailReasons {
-    PermissionDenied,
-    NotFound,
 }
