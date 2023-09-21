@@ -65,16 +65,29 @@ pub async fn dispatcher(config_path: &str) {
     tokio::spawn(async move {
         let socket = UnixListener::bind(&server_state.configuration.listen).unwrap();
         loop {
-            match socket.accept().await {
-                Ok((mut stream, _)) => {
-                    if let Ok(request) = get_request(&mut stream).await {
-                        if let Ok(ucred) = stream.peer_cred() {
-                            let mut status = server_state.clone();
-                            let response = request.handle(&mut status, &ucred).await;
-                            let _ = stream
-                                .write_all(serde_json::to_string(&response).unwrap().as_bytes())
-                                .await;
-                            let _ = stream.shutdown().await;
+            let request = socket.accept().await;
+            let server_state = server_state.clone();
+            tokio::spawn(async move {
+                match request {
+                    Ok((mut stream, _)) => {
+                        if let Ok(request) = get_request(&mut stream).await {
+                            if let Ok(ucred) = stream.peer_cred() {
+                                let mut status = server_state.clone();
+                                let response = request.handle(&mut status, &ucred).await;
+                                let _ = stream
+                                    .write_all(serde_json::to_string(&response).unwrap().as_bytes())
+                                    .await;
+                                let _ = stream.shutdown().await;
+                            } else {
+                                let _ = stream
+                                    .write_all(
+                                        serde_json::to_string(&DispatcherResponse::InvalidRequest)
+                                            .unwrap()
+                                            .as_bytes(),
+                                    )
+                                    .await;
+                                let _ = stream.shutdown().await;
+                            }
                         } else {
                             let _ = stream
                                 .write_all(
@@ -85,21 +98,12 @@ pub async fn dispatcher(config_path: &str) {
                                 .await;
                             let _ = stream.shutdown().await;
                         }
-                    } else {
-                        let _ = stream
-                            .write_all(
-                                serde_json::to_string(&DispatcherResponse::InvalidRequest)
-                                    .unwrap()
-                                    .as_bytes(),
-                            )
-                            .await;
-                        let _ = stream.shutdown().await;
+                    }
+                    Err(err) => {
+                        println!("Error: {:#?}", err);
                     }
                 }
-                Err(err) => {
-                    println!("Error: {:#?}", err);
-                }
-            }
+            });
         }
     });
 
